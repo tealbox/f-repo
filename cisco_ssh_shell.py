@@ -1,71 +1,57 @@
-import paramiko
+from netmiko import ConnectHandler
 import time
 
 class CiscoSwitch:
-    def __init__(self, hostname, username, password, port=22):
+    def __init__(self, hostname, username, password, device_type="cisco_ios", port=22):
         """
         Initialize the CiscoSwitch object with connection details.
         
         :param hostname: IP address or hostname of the Cisco switch.
         :param username: Username for authentication.
         :param password: Password for authentication.
+        :param device_type: Device type (default is "cisco_ios").
         :param port: SSH port (default is 22).
         """
         self.hostname = hostname
         self.username = username
         self.password = password
+        self.device_type = device_type
         self.port = port
-        self.ssh_client = None
-        self.shell = None
+        self.connection = None
 
     def connect(self):
         """
-        Connect to the Cisco switch using SSH.
+        Connect to the Cisco switch using Netmiko.
         """
         try:
-            # Create an SSH client
-            self.ssh_client = paramiko.SSHClient()
-            self.ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            
-            # Connect to the switch
-            self.ssh_client.connect(
-                hostname=self.hostname,
-                port=self.port,
-                username=self.username,
-                password=self.password,
-                look_for_keys=False,
-                allow_agent=False
-            )
-            
-            # Open an interactive shell
-            self.shell = self.ssh_client.invoke_shell()
-            time.sleep(1)  # Wait for the shell to initialize
-            
+            # Define the device parameters
+            device = {
+                "device_type": self.device_type,
+                "host": self.hostname,
+                "username": self.username,
+                "password": self.password,
+                "port": self.port,
+            }
+
+            # Establish the connection
+            self.connection = ConnectHandler(**device)
             print(f"Connected to {self.hostname}")
         except Exception as e:
             print(f"Failed to connect to {self.hostname}: {e}")
 
-    def send_command(self, command, timeout=2):
+    def send_command(self, command):
         """
         Send a command to the Cisco switch and return the output.
         
         :param command: The command to execute on the switch.
-        :param timeout: Time to wait for the response (default is 2 seconds).
         :return: Output of the command.
         """
         try:
-            if not self.shell:
+            if not self.connection:
                 raise Exception("Not connected to the switch. Call connect() first.")
             
-            # Send the command
-            self.shell.send(command + "\n")
-            time.sleep(timeout)  # Wait for the command to execute
-            
-            # Read the output
-            output = ""
-            while self.shell.recv_ready():
-                output += self.shell.recv(65535).decode('utf-8')
-            
+            # Send the command and retrieve the output
+            output = self.connection.send_command(command)
             return output.strip()
         except Exception as e:
             print(f"Error sending command '{command}': {e}")
@@ -77,7 +63,7 @@ class CiscoSwitch:
         
         :return: Running configuration as a string.
         """
-        return self.send_command("show running-config", timeout=5)
+        return self.send_command("show running-config")
 
     def save_config_to_file(self, config, filename="switch_config.cfg"):
         """
@@ -98,8 +84,8 @@ class CiscoSwitch:
         Disconnect from the Cisco switch.
         """
         try:
-            if self.ssh_client:
-                self.ssh_client.close()
+            if self.connection:
+                self.connection.disconnect()
             print(f"Disconnected from {self.hostname}")
         except Exception as e:
             print(f"Error disconnecting from {self.hostname}: {e}")
